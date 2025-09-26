@@ -80,7 +80,7 @@ public class Program
         // ---- Dev token (demo:demo) ----
         app.MapGet("/api/auth/token", (HttpContext ctx) =>
         {
-            if (!ctx.Request.Headers.TryGetValue("Authorization", out var auth)) return Results.Unauthorized();
+            if (!ctx.RequestHeaders.TryGetValue("Authorization", out var auth)) return Results.Unauthorized();
             var value = auth.ToString();
             if (!value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)) return Results.Unauthorized();
 
@@ -107,9 +107,13 @@ public class Program
             }
             catch (ApiException ex)
             {
-                var body = ex.Content; // <<— Refit body as string
-                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body,
-                    "application/json", ex.StatusCode);
+                var body = ex.Content; // Refit error body as string
+                return Results.Text(
+                    string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+                    "application/json",
+                    Encoding.UTF8,
+                    (int)ex.StatusCode
+                );
             }
             catch (Exception ex)
             {
@@ -127,9 +131,13 @@ public class Program
             }
             catch (ApiException ex)
             {
-                var body = ex.Content; // <<— Refit body as string
-                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body,
-                    "application/json", ex.StatusCode);
+                var body = ex.Content; // Refit error body as string
+                return Results.Text(
+                    string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+                    "application/json",
+                    Encoding.UTF8,
+                    (int)ex.StatusCode
+                );
             }
             catch (Exception ex)
             {
