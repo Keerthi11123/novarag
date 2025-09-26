@@ -3,20 +3,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Refit;
-
-// ====== DTOs ======
-public record QueryRequest(string query, int k = 4, string? doc_id = null);
-public record IngestDto(string doc_id, string text, int chunk_size = 700);
-
-// ====== Refit API client to AI service ======
-public interface IAiClient
-{
-    [Post("/query")]
-    Task<object> QueryAsync([Body] QueryRequest request);
-
-    [Post("/ingest")]
-    Task<object> IngestAsync([Body] IngestDto request);
-}
+using NovaRag.Gateway.Models;
+using NovaRag.Gateway.Clients;
+using NovaRag.Gateway.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,7 +33,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// ---- CORS for GitHub Pages (exact origin) ----
+// ---- CORS for GitHub Pages ----
 const string PagesOrigin = "https://keerthi11123.github.io";
 builder.Services.AddCors(options =>
 {
@@ -54,7 +43,7 @@ builder.Services.AddCors(options =>
          .AllowAnyMethod());
 });
 
-// ---- Refit HTTP client ----
+// ---- Refit HTTP client to AI service ----
 builder.Services.AddRefitClient<IAiClient>()
     .ConfigureHttpClient(c => c.BaseAddress = new Uri(aiBase));
 
@@ -78,7 +67,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// ---- Order matters: CORS BEFORE auth to allow preflights ----
+// ---- Order: CORS BEFORE auth (for preflight) ----
 app.UseCors("PagesPolicy");
 
 app.UseSwagger();
@@ -90,17 +79,17 @@ app.UseAuthorization();
 // ---- Health ----
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
-// ---- Dev token endpoint (Basic demo:demo -> JWT) ----
+// ---- Dev token (Basic demo:demo -> JWT) ----
 app.MapGet("/api/auth/token", (HttpContext ctx) =>
 {
     if (!ctx.Request.Headers.TryGetValue("Authorization", out var auth)) return Results.Unauthorized();
     var value = auth.ToString();
     if (!value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)) return Results.Unauthorized();
 
-    var b64 = value["Basic ".Length..].Trim();
     string user, pass;
     try
     {
+        var b64 = value["Basic ".Length..].Trim();
         var parts = Encoding.UTF8.GetString(Convert.FromBase64String(b64)).Split(':', 2);
         if (parts.Length != 2) return Results.Unauthorized();
         user = parts[0]; pass = parts[1];
@@ -113,13 +102,14 @@ app.MapGet("/api/auth/token", (HttpContext ctx) =>
     return Results.Ok(new { token });
 });
 
-// ---- Proxy endpoints ----
+// ---- Proxy: query ----
 app.MapPost("/api/query", async (IAiClient ai, QueryRequest req) =>
 {
     var res = await ai.QueryAsync(req);
     return Results.Ok(res);
 }).RequireAuthorization();
 
+// ---- Proxy: ingest ----
 app.MapPost("/api/ingest", async (IAiClient ai, IngestDto req) =>
 {
     var res = await ai.IngestAsync(req);
@@ -127,22 +117,3 @@ app.MapPost("/api/ingest", async (IAiClient ai, IngestDto req) =>
 }).RequireAuthorization();
 
 app.Run();
-
-// ====== JWT helper ======
-public static class JwtTokenHelper
-{
-    public static string Issue(string key, string issuer, string audience, string username)
-    {
-        var sk = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
-        var cred = new SigningCredentials(sk, SecurityAlgorithms.HmacSha256);
-        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: new[] { new System.Security.Claims.Claim("sub", username) },
-            expires: DateTime.UtcNow.AddHours(6),
-            signingCredentials: cred
-        );
-        return handler.WriteToken(token);
-    }
-}
