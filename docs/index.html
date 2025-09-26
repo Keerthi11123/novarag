@@ -1,31 +1,275 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NovaRAG – Demo</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>NovaRAG – Demo UI</title>
+  <style>
+    :root { --bg:#0b1220; --card:#121a2b; --border:#1f2a44; --text:#e6eef8; --muted:#9fb2d4; --accent:#3b82f6; }
+    *{ box-sizing:border-box; font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    body{ margin:0; background:var(--bg); color:var(--text); }
+    .wrap{ max-width: 980px; margin: 0 auto; padding: 24px; }
+    h1{ margin: 0 0 4px; font-size: 28px; }
+    p.lead{ margin: 0 0 18px; color: var(--muted); }
+    .grid{ display:grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px){ .grid{ grid-template-columns: 1fr 1fr; } }
+
+    .card{ background: var(--card); border:1px solid var(--border); border-radius: 16px; padding: 16px; }
+    .card h2{ margin: 0 0 12px; font-size: 18px; }
+    label{ display:block; font-size: 13px; color: var(--muted); margin: 8px 0 6px; }
+    input[type=text], input[type=number], textarea{ width:100%; padding:10px; border-radius: 10px; border:1px solid var(--border); background:#0d1526; color:var(--text); }
+    textarea{ min-height: 120px; resize: vertical; }
+    .row{ display:flex; gap:8px; align-items:center; }
+    .row > *{ flex: 1; }
+
+    button{ padding:10px 14px; border:none; border-radius: 10px; background:var(--accent); color:white; cursor:pointer; }
+    button.secondary{ background:#2b395e; }
+    button:disabled{ opacity:.6; cursor: not-allowed; }
+
+    .muted{ color: var(--muted); font-size: 13px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .out{ white-space: pre-wrap; background:#0d1526; border:1px solid var(--border); border-radius: 12px; padding:12px; overflow:auto; max-height: 360px; }
+    .pill{ display:inline-block; padding:3px 8px; border-radius:999px; background:#17213a; border:1px solid var(--border); font-size:12px; color:var(--muted); }
+    .ok{ color:#22c55e; }
+    .err{ color:#ef4444; }
+  </style>
+  <!-- PDF.js for client-side PDF → text extraction -->
+  <script src="https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.min.js"></script>
+  <script>
+    // Configure pdf.js worker
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.js';
+    }
+  </script>
 </head>
 <body>
-  <div class="container">
-    <h1>NovaRAG – RAG Demo</h1>
-    <p>Use this static page (GitHub Pages) to call your running APIs.</p>
+  <div class="wrap">
+    <h1>NovaRAG</h1>
+    <p class="lead">Query your documents with a Retrieval‑Augmented Generation pipeline.</p>
 
-    <section class="card">
+    <div class="card">
       <h2>Settings</h2>
-      <label>Gateway Base URL <input id="gateway" value="http://localhost:8080" /></label>
-      <button id="getToken">Get Demo Token</button>
-      <pre id="tokenOut"></pre>
-    </section>
+      <label>Gateway Base URL</label>
+      <input id="gateway" type="text" value="https://novarag-gatewaygateway-dotnet.onrender.com" />
+      <div class="row" style="margin-top:10px;">
+        <button id="btnToken">Get Demo Token</button>
+        <span id="authState" class="muted">Not authenticated</span>
+      </div>
+    </div>
 
-    <section class="card">
-      <h2>Query</h2>
-      <label>Question <input id="q" placeholder="What is RAG?" /></label>
-      <label>k <input id="k" type="number" value="3" /></label>
-      <button id="run">Ask</button>
-      <pre id="out"></pre>
-    </section>
+    <div class="grid">
+      <div class="card">
+        <h2>Upload a document</h2>
+        <label>doc_id</label>
+        <input id="docId" type="text" placeholder="e.g. demo-doc" />
+        <label>Chunk size (tokens-ish)</label>
+        <input id="chunkSize" type="number" value="700" />
+
+        <label>Paste text</label>
+        <textarea id="ingestText" placeholder="Paste or type content here…"></textarea>
+        <div class="row">
+          <button id="btnIngestText">Ingest Text</button>
+          <span id="ingestStatus" class="muted"></span>
+        </div>
+        <hr style="border-color: var(--border); opacity:.4; margin:14px 0;" />
+        <label>Or upload a file (.pdf, .txt, .md)</label>
+        <input id="fileInput" type="file" accept=".pdf,.txt,.md,.text,.mdown,.markdown" />
+        <div class="row" style="margin-top:8px;">
+          <button id="btnIngestFile" class="secondary">Ingest File</button>
+          <span id="fileStatus" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ask a question</h2>
+        <label>Question</label>
+        <input id="question" type="text" placeholder="What is RAG?" />
+        <div class="row">
+          <div>
+            <label>Top‑k</label>
+            <input id="topK" type="number" value="4" />
+          </div>
+          <div>
+            <label>Scope to doc_id (optional)</label>
+            <input id="scopeDocId" type="text" placeholder="demo-doc" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btnAsk">Ask</button>
+          <span id="askStatus" class="muted"></span>
+        </div>
+        <div id="answer" class="out" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Debug Output</h2>
+      <div id="debug" class="out mono">Ready.</div>
+    </div>
   </div>
-  <script src="script.js"></script>
+
+  <script>
+    const el = id => document.getElementById(id);
+
+    // Persist settings & token in localStorage
+    const LS = {
+      set k(v){ localStorage.setItem('novarag.k', String(v)); },
+      get k(){ return Number(localStorage.getItem('novarag.k') || 4); },
+      set gw(v){ localStorage.setItem('novarag.gateway', v); },
+      get gw(){ return localStorage.getItem('novarag.gateway') || 'https://novarag-gatewaygateway-dotnet.onrender.com'; },
+      set token(v){ localStorage.setItem('novarag.token', v || ''); },
+      get token(){ return localStorage.getItem('novarag.token') || ''; }
+    };
+
+    // Init form
+    el('gateway').value = LS.gw;
+    el('topK').value = LS.k;
+    let TOKEN = LS.token;
+    updateAuthState();
+
+    function updateAuthState(){
+      el('authState').innerHTML = TOKEN ? `<span class="pill ok">Authenticated</span>` : `<span class="pill">Not authenticated</span>`;
+    }
+
+    function setBusy(node, busy){ node.disabled = !!busy; }
+    function log(msg){ const d = el('debug'); d.textContent += `\n${msg}`; d.scrollTop = d.scrollHeight; }
+
+    // Get Demo Token
+    el('btnToken').addEventListener('click', async () => {
+      try{
+        setBusy(el('btnToken'), true);
+        const gw = el('gateway').value.trim();
+        LS.gw = gw;
+        const res = await fetch(`${gw}/api/auth/token`, { headers: { 'Authorization': 'Basic ' + btoa('demo:demo') } });
+        const json = await res.json();
+        TOKEN = json.token || '';
+        LS.token = TOKEN;
+        updateAuthState();
+        log('Got token.');
+      } catch(err){
+        log('ERROR getting token: ' + (err?.message || err));
+        alert('Failed to get token. Check Gateway URL and CORS.');
+      } finally{ setBusy(el('btnToken'), false); }
+    });
+
+    // Ingest helpers
+    async function ingest(docId, text, chunkSize){
+      const gw = el('gateway').value.trim();
+      if(!TOKEN){ throw new Error('No token. Click Get Demo Token first.'); }
+      const dto = { doc_id: docId, text: text, chunk_size: Number(chunkSize)||700 };
+      const res = await fetch(`${gw}/api/ingest`, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type':'application/json' },
+        body: JSON.stringify(dto)
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(`Ingest failed (${res.status}): ${t}`);
+      }
+      return res.json();
+    }
+
+    // Ingest Text
+    el('btnIngestText').addEventListener('click', async () => {
+      const docId = el('docId').value.trim();
+      const chunkSize = el('chunkSize').value;
+      const text = el('ingestText').value.trim();
+      if(!docId || !text){ alert('Provide doc_id and some text.'); return; }
+      setBusy(el('btnIngestText'), true); el('ingestStatus').textContent = 'Indexing… (first run may take a minute)';
+      try{
+        const out = await ingest(docId, text, chunkSize);
+        el('ingestStatus').textContent = `Done. Indexed ${out.chunks_indexed} chunks.`;
+        log(`Ingested doc_id=${docId}, chunks=${out.chunks_indexed}`);
+      } catch(err){
+        el('ingestStatus').textContent = '';
+        log('ERROR ingest text: ' + (err?.message || err));
+        alert('Ingest failed. See Debug Output below.');
+      } finally{ setBusy(el('btnIngestText'), false); }
+    });
+
+    // Ingest File (.pdf, .txt, .md)
+    el('btnIngestFile').addEventListener('click', async () => {
+      const file = el('fileInput').files[0];
+      const docId = el('docId').value.trim();
+      const chunkSize = el('chunkSize').value;
+      if(!file){ alert('Choose a file.'); return; }
+      if(!docId){ alert('Provide doc_id for this file.'); return; }
+      setBusy(el('btnIngestFile'), true); el('fileStatus').textContent = 'Reading file…';
+      try{
+        let text = '';
+        if(file.name.toLowerCase().endsWith('.pdf')){
+          text = await readPdfAsText(file);
+        } else {
+          text = await file.text();
+        }
+        el('fileStatus').textContent = 'Indexing…';
+        const out = await ingest(docId, text, chunkSize);
+        el('fileStatus').textContent = `Done. Indexed ${out.chunks_indexed} chunks.`;
+        log(`Ingested file ${file.name}, doc_id=${docId}, chunks=${out.chunks_indexed}`);
+      } catch(err){
+        el('fileStatus').textContent = '';
+        log('ERROR ingest file: ' + (err?.message || err));
+        alert('Ingest failed. See Debug Output below.');
+      } finally{ setBusy(el('btnIngestFile'), false); }
+    });
+
+    // Ask a question
+    el('btnAsk').addEventListener('click', async () => {
+      const gw = el('gateway').value.trim();
+      const q = el('question').value.trim();
+      const k = Number(el('topK').value) || 4;
+      const scope = el('scopeDocId').value.trim();
+      if(!TOKEN){ alert('Get a token first.'); return; }
+      if(!q){ alert('Enter a question.'); return; }
+      LS.k = k; LS.gw = gw;
+      setBusy(el('btnAsk'), true); el('askStatus').textContent = 'Thinking…';
+      try{
+        const body = scope ? { query:q, k, doc_id: scope } : { query:q, k };
+        const res = await fetch(`${gw}/api/query`, {
+          method:'POST',
+          headers:{ 'Authorization': 'Bearer ' + TOKEN, 'Content-Type':'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        renderAnswer(data);
+        el('askStatus').textContent = '';
+      } catch(err){
+        el('askStatus').textContent = '';
+        log('ERROR ask: ' + (err?.message || err));
+        alert('Query failed. See Debug Output below.');
+      } finally{ setBusy(el('btnAsk'), false); }
+    });
+
+    function renderAnswer(data){
+      const box = el('answer');
+      const ans = data?.answer ?? JSON.stringify(data);
+      const sources = data?.sources || [];
+      let html = `<div><strong>Answer</strong></div><div style="margin:8px 0 12px;">${escapeHtml(ans)}</div>`;
+      if(sources.length){
+        html += '<div><strong>Sources</strong></div>';
+        for(const s of sources){
+          const meta = s.metadata ? JSON.stringify(s.metadata) : '';
+          const snip = s.snippet || '';
+          html += `<div class="out" style="margin:6px 0 10px;">\n${escapeHtml(snip)}\n\n<meta class="muted">${escapeHtml(meta)}</meta></div>`;
+        }
+      }
+      box.innerHTML = html;
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+
+    async function readPdfAsText(file){
+      const arrayBuf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+      let fullText = '';
+      for (let i=1; i<=pdf.numPages; i++){
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const strings = content.items.map(it => it.str);
+        fullText += strings.join(' ') + '\n\n';
+      }
+      return fullText;
+    }
+  </script>
 </body>
 </html>
