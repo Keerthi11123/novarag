@@ -1,0 +1,20 @@
+services:
+  ai:
+    build: ./ai-service
+    ports:
+      - "8000:8000"
+    environment:
+      - CHROMA_DB=./chroma_db
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ./ai-service/chroma_db:/app/chroma_db
+      - ./ai-service/.cache:/root/.cache/huggingface
+  gateway:
+    build: ./gateway-dotnet
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_KEY=dev_super_secret_key_change_me
+      - AI_BASE_URL=http://ai:8000
+    depends_on:
+      - ai

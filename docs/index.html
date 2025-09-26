@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NovaRAG – Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>NovaRAG – RAG Demo</h1>
+    <p>Use this static page (GitHub Pages) to call your running APIs.</p>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <label>Gateway Base URL <input id="gateway" value="http://localhost:8080" /></label>
+      <button id="getToken">Get Demo Token</button>
+      <pre id="tokenOut"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Query</h2>
+      <label>Question <input id="q" placeholder="What is RAG?" /></label>
+      <label>k <input id="k" type="number" value="3" /></label>
+      <button id="run">Ask</button>
+      <pre id="out"></pre>
+    </section>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
