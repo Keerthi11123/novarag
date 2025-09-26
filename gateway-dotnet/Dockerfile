@@ -7,6 +7,7 @@ RUN dotnet publish -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/publish .
-EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
+# Bind to Render's PORT env (default 10000)
+ENV ASPNETCORE_URLS=http://0.0.0.0:${PORT:-10000}
+EXPOSE 10000
 CMD ["dotnet", "NovaRag.Gateway.dll"]
