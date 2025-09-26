@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: novarag-ai
+    env: docker
+    plan: free
+    region: oregon
+    repo: https://github.com/Keerthi11123/novarag
+    branch: main
+    dockerfilePath: ai-service/Dockerfile
+    buildContext: ai-service
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+
+  - type: web
+    name: novarag-gateway
+    env: docker
+    plan: free
+    region: oregon
+    repo: https://github.com/Keerthi11123/novarag
+    branch: main
+    dockerfilePath: gateway-dotnet/Dockerfile
+    buildContext: gateway-dotnet
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: AI_BASE_URL
+        value: https://novarag.onrender.com
+      - key: JWT_KEY
+        generateValue: true
+      - key: PORT
+        value: "10000"
