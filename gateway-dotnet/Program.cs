@@ -97,7 +97,7 @@ public class Program
             return Results.Ok(new { token });
         });
 
-        // ---- Proxy: /api/query -> AI /query  (return upstream errors) ----
+        // ---- Proxy: /api/query -> AI /query (surface upstream errors) ----
         app.MapPost("/api/query", async (IAiClient ai, QueryRequest req) =>
         {
             try
@@ -107,8 +107,9 @@ public class Program
             }
             catch (ApiException ex)
             {
-                var body = await ex.GetContentAsStringAsync();
-                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body, "application/json", ex.StatusCode);
+                var body = ex.Content; // <<— Refit body as string
+                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+                    "application/json", ex.StatusCode);
             }
             catch (Exception ex)
             {
@@ -116,7 +117,7 @@ public class Program
             }
         }).RequireAuthorization();
 
-        // ---- Proxy: /api/ingest -> AI /ingest  (return upstream errors) ----
+        // ---- Proxy: /api/ingest -> AI /ingest (surface upstream errors) ----
         app.MapPost("/api/ingest", async (IAiClient ai, IngestDto req) =>
         {
             try
@@ -126,8 +127,9 @@ public class Program
             }
             catch (ApiException ex)
             {
-                var body = await ex.GetContentAsStringAsync();
-                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body, "application/json", ex.StatusCode);
+                var body = ex.Content; // <<— Refit body as string
+                return Results.Text(string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+                    "application/json", ex.StatusCode);
             }
             catch (Exception ex)
             {
