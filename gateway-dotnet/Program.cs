@@ -80,9 +80,12 @@ public class Program
         // ---- Dev token (demo:demo) ----
         app.MapGet("/api/auth/token", (HttpContext ctx) =>
         {
-            if (!ctx.RequestHeaders.TryGetValue("Authorization", out var auth)) return Results.Unauthorized();
+            if (!ctx.Request.Headers.TryGetValue("Authorization", out var auth))
+                return Results.Unauthorized();
+
             var value = auth.ToString();
-            if (!value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)) return Results.Unauthorized();
+            if (!value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+                return Results.Unauthorized();
 
             try
             {
@@ -159,7 +162,7 @@ public class Program
     }
 }
 
-// ====== Types (kept below; no top-level stmts above) ======
+// ====== Types (keep below; no top-level stmts above) ======
 public record QueryRequest(string query, int k = 4, string? doc_id = null);
 public record IngestDto(string doc_id, string text, int chunk_size = 700);
 
