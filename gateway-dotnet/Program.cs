@@ -55,8 +55,31 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("PagesPolicy", p =>
+        p.WithOrigins(
+            "https://keerthi11123.github.io",
+            "https://keerthi11123.github.io/novarag/"
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
+
+public record IngestDto(string doc_id, string text, int chunk_size = 700);
+
+public interface IAiClient
+{
+    [Post("/query")]
+    Task<object> QueryAsync([Body] QueryRequest request);
+
+    [Post("/ingest")]
+    Task<object> IngestAsync([Body] IngestDto request);
+}
+
 var app = builder.Build();
 
+app.UseCors("PagesPolicy");
 app.UseSwagger();
 app.UseSwaggerUI();
 
@@ -99,6 +122,12 @@ app.MapGet("/api/meta/docs", async (MetaDb db) =>
 app.MapPost("/api/query", async (IAiClient ai, QueryRequest req) =>
 {
     var res = await ai.QueryAsync(req);
+    return Results.Ok(res);
+}).RequireAuthorization();
+
+app.MapPost("/api/ingest", async (IAiClient ai, IngestDto req) =>
+{
+    var res = await ai.IngestAsync(req);
     return Results.Ok(res);
 }).RequireAuthorization();
 
