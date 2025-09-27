@@ -1,212 +1,116 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8" />
   <title>NovaRAG</title>
   <style>
-    :root { --bg:#0b1220; --card:#121a2b; --border:#1f2a44; --text:#e6eef8; --muted:#9fb2d4; --accent:#3b82f6; }
-    *{ box-sizing:border-box; font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-    body{ margin:0; background:var(--bg); color:var(--text); }
-    .wrap{ max-width:860px; margin:0 auto; padding:24px; }
-    h1{ margin:0 0 8px; font-size:26px; }
-    .card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin:14px 0; }
-    label{ display:block; font-size:13px; color:var(--muted); margin:6px 0 6px; }
-    input[type=text], textarea{ width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:#0d1526; color:var(--text);}
-    textarea{ min-height:110px; resize:vertical; }
-    button{ padding:10px 14px; border:none; border-radius:10px; background:var(--accent); color:#fff; cursor:pointer; }
-    button:disabled{ opacity:.6; cursor:not-allowed; }
-    .row{ display:flex; gap:10px; align-items:center; }
-    .out{ white-space:pre-wrap; background:#0d1526; border:1px solid var(--border); border-radius:12px; padding:12px; overflow:auto; max-height:360px; }
-    .muted{ color:var(--muted); font-size:13px; }
-    .pill{ display:inline-block; padding:3px 8px; border-radius:999px; background:#17213a; border:1px solid var(--border); font-size:12px; color:var(--muted); }
+    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+    .wrap { max-width: 720px; margin: auto; }
+    textarea { width: 100%; height: 140px; }
+    .row { margin: 0.5rem 0; }
+    .btn { padding: 0.6rem 1rem; cursor: pointer; }
+    #log { white-space: pre-wrap; border: 1px solid #ddd; padding: 0.75rem; border-radius: 8px; margin-top: 1rem; }
   </style>
-  <!-- pdf.js to parse PDFs client-side -->
-  <script src="https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.min.js"></script>
-  <script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.js';</script>
 </head>
 <body>
-<div class="wrap">
-  <h1>NovaRAG</h1>
+  <div class="wrap">
+    <h1>NovaRAG</h1>
 
-  <!-- Sign in -->
-  <div class="card">
     <div class="row">
-      <div style="flex:1">
-        <label>Gateway</label>
-        <input id="gateway" type="text" value="https://novarag-gatewaygateway-dotnet.onrender.com" />
-      </div>
-      <div>
-        <label>&nbsp;</label>
-        <button id="btnLogin">Sign in (demo)</button>
-      </div>
-      <div><label>&nbsp;</label><span id="authState" class="pill">Not signed in</span></div>
+      <label>Gateway URL</label><br/>
+      <input type="text" id="gw" value="https://novarag-gatewaygateway-dotnet.onrender.com" style="width:100%">
     </div>
-  </div>
 
-  <!-- Upload -->
-  <div class="card">
-    <h3 style="margin:0 0 10px">Upload a document</h3>
-    <label>doc_id</label>
-    <input id="docId" type="text" placeholder="e.g. demo-doc" />
     <div class="row">
-      <div style="flex:1">
-        <label>Upload file (.pdf, .txt, .md)</label>
-        <input id="fileInput" type="file" accept=".pdf,.txt,.md,.markdown,.text" />
-      </div>
-      <div style="align-self:flex-end">
-        <button id="btnIngestFile">Upload</button>
-      </div>
+      <label>Document ID</label><br/>
+      <input type="text" id="docId" placeholder="e.g. litreview-2025" style="width:100%">
     </div>
-    <label style="margin-top:10px">…or paste text</label>
-    <textarea id="pasteText" placeholder="Paste content here…"></textarea>
-    <div class="row">
-      <button id="btnIngestText">Ingest text</button>
-      <span id="ingestMsg" class="muted"></span>
-    </div>
-  </div>
 
-  <!-- Ask -->
-  <div class="card">
-    <h3 style="margin:0 0 10px">Ask a question</h3>
-    <label>Question</label>
-    <input id="question" type="text" placeholder="What is RAG?" />
-    <div class="row" style="margin-top:8px">
-      <button id="btnAsk">Ask</button>
-      <span class="muted">Optional scope: use the same <em>doc_id</em> you uploaded</span>
+    <div class="row">
+      <label>Paste Text</label><br/>
+      <textarea id="textInput" placeholder="Paste text here..."></textarea>
     </div>
-    <div id="answer" class="out" style="margin-top:10px"></div>
+
+    <div class="row">
+      <label>Or Upload PDF/TXT</label><br/>
+      <input type="file" id="fileInput" accept=".pdf,.txt">
+    </div>
+
+    <div class="row">
+      <button class="btn" onclick="doIngest()">Ingest</button>
+    </div>
+
+    <div id="log"></div>
   </div>
-</div>
 
 <script>
-  const $ = id => document.getElementById(id);
-  let TOKEN = localStorage.getItem('novarag.token') || '';
-  const GW_DEFAULT = 'https://novarag-gatewaygateway-dotnet.onrender.com';
-  $('gateway').value = localStorage.getItem('novarag.gateway') || GW_DEFAULT;
-  updateAuth();
+let token = null;
 
-  function updateAuth(){
-    $('authState').textContent = TOKEN ? 'Signed in' : 'Not signed in';
-  }
-  function setBusy(el,b){ el.disabled = !!b; }
+async function getToken(gateway) {
+  if (token) return token;
+  const r = await fetch(`${gateway}/api/auth/token`, {
+    headers: { Authorization: "Basic " + btoa("demo:demo") }
+  });
+  if (!r.ok) throw new Error("Auth failed: " + (await r.text()));
+  const j = await r.json();
+  token = j.token;
+  return token;
+}
 
-  // Sign in (demo creds)
-  $('btnLogin').onclick = async () => {
-    try{
-      setBusy($('btnLogin'), true);
-      const gw = $('gateway').value.trim();
-      localStorage.setItem('novarag.gateway', gw);
-      const res = await fetch(`${gw}/api/auth/token`, {
-        headers: { Authorization: 'Basic ' + btoa('demo:demo') }
+function log(msg) {
+  const el = document.getElementById("log");
+  el.textContent += msg + "\n";
+}
+
+async function doIngest() {
+  const gateway = document.getElementById("gw").value.trim();
+  const docId = document.getElementById("docId").value.trim();
+  const text = document.getElementById("textInput").value.trim();
+  const file = document.getElementById("fileInput").files[0];
+  const out = document.getElementById("log");
+  out.textContent = "";
+
+  if (!gateway) return log("❌ Please provide Gateway URL");
+  if (!docId)    return log("❌ Please provide Document ID");
+
+  try {
+    const tk = await getToken(gateway);
+
+    let r;
+    if (file) {
+      log("⏳ Uploading file...");
+      const form = new FormData();
+      form.append("doc_id", docId);
+      form.append("file", file);
+      r = await fetch(`${gateway}/api/ingest-file`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tk}` },
+        body: form
       });
-      if(!res.ok){ throw new Error('HTTP '+res.status); }
-      const json = await res.json();
-      TOKEN = json.token || '';
-      localStorage.setItem('novarag.token', TOKEN);
-      updateAuth();
-      alert('Signed in.');
-    }catch(e){
-      alert('Failed to sign in. Check Gateway URL and CORS.');
-    }finally{ setBusy($('btnLogin'), false); }
-  };
-
-  // Ingest helpers (proxy via gateway)
-  async function ingestText(docId, text){
-    const gw = $('gateway').value.trim();
-    if(!TOKEN) throw new Error('Sign in first.');
-    const res = await fetch(`${gw}/api/ingest`, {
-      method:'POST',
-      headers:{ 'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json' },
-      body: JSON.stringify({ doc_id: docId, text, chunk_size: 700 })
-    });
-    if(!res.ok) throw new Error('HTTP '+res.status+' '+await res.text());
-    return res.json();
-  }
-
-  $('btnIngestText').onclick = async () => {
-    const docId = $('docId').value.trim();
-    const text = $('pasteText').value.trim();
-    if(!docId || !text) return alert('Provide doc_id and some text.');
-    setBusy($('btnIngestText'), true); $('ingestMsg').textContent = 'Indexing… (first run can take a minute)';
-    try{
-      const out = await ingestText(docId, text);
-      $('ingestMsg').textContent = `Done. Indexed ${out.chunks_indexed} chunks.`;
-    }catch(e){
-      $('ingestMsg').textContent = ''; alert('Ingest failed.');
-    }finally{ setBusy($('btnIngestText'), false); }
-  };
-
-  $('btnIngestFile').onclick = async () => {
-    const file = $('fileInput').files[0];
-    const docId = $('docId').value.trim();
-    if(!file) return alert('Choose a file.');
-    if(!docId) return alert('Provide doc_id.');
-    setBusy($('btnIngestFile'), true); $('ingestMsg').textContent = 'Reading…';
-    try{
-      let text = '';
-      if(file.name.toLowerCase().endsWith('.pdf')){
-        text = await readPdf(file);
-      } else {
-        text = await file.text();
-      }
-      $('ingestMsg').textContent = 'Indexing…';
-      const out = await ingestText(docId, text);
-      $('ingestMsg').textContent = `Done. Indexed ${out.chunks_indexed} chunks.`;
-    }catch(e){
-      $('ingestMsg').textContent = ''; alert('Ingest failed.');
-    }finally{ setBusy($('btnIngestFile'), false); }
-  };
-
-  $('btnAsk').onclick = async () => {
-    const gw = $('gateway').value.trim();
-    const q = $('question').value.trim();
-    const scope = $('docId').value.trim(); // reuse same doc_id if present
-    if(!TOKEN) return alert('Sign in first.');
-    if(!q) return alert('Ask a question.');
-    setBusy($('btnAsk'), true);
-    try{
-      const body = scope ? { query:q, k:4, doc_id: scope } : { query:q, k:4 };
-      const res = await fetch(`${gw}/api/query`, {
-        method:'POST',
-        headers:{ 'Authorization':'Bearer '+TOKEN, 'Content-Type':'application/json' },
-        body: JSON.stringify(body)
+    } else if (text) {
+      log("⏳ Sending text...");
+      r = await fetch(`${gateway}/api/ingest-text`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tk}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ doc_id: docId, text, chunk_size: 700 })
       });
-      const data = await res.json();
-      renderAnswer(data);
-    }catch(e){
-      alert('Query failed.');
-    }finally{ setBusy($('btnAsk'), false); }
-  };
-
-  function renderAnswer(data){
-    const ans = data?.answer ?? JSON.stringify(data);
-    const sources = data?.sources || [];
-    let html = `<strong>Answer</strong>\n\n${escapeHtml(ans)}\n`;
-    if(sources.length){
-      html += `\n\n<strong>Sources</strong>\n`;
-      for(const s of sources){
-        const snip = s.snippet || '';
-        const meta = s.metadata ? JSON.stringify(s.metadata) : '';
-        html += `\n— ${escapeHtml(snip)}\n   ${escapeHtml(meta)}\n`;
-      }
+    } else {
+      return log("❌ Paste text or choose a file.");
     }
-    $('answer').textContent = html;
-  }
 
-  function escapeHtml(s){ return String(s).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c])); }
-
-  async function readPdf(file){
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
-    let out = '';
-    for(let i=1;i<=pdf.numPages;i++){
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      out += content.items.map(it=>it.str).join(' ') + '\n\n';
+    if (!r.ok) {
+      const t = await r.text();
+      return log("❌ Ingestion failed: " + t);
     }
-    return out;
+    const j = await r.json();
+    log("✅ Ingested batches: " + (j.batches ?? 1));
+  } catch (e) {
+    log("❌ Error: " + e.message);
   }
+}
 </script>
 </body>
 </html>
