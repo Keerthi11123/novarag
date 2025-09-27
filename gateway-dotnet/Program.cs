@@ -4,147 +4,158 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Refit;
 
+// ---------------------- Service setup ----------------------
 var builder = WebApplication.CreateBuilder(args);
 
-// ---------- Services ----------
-builder.Services.AddControllers();
+// Config
+string AiBase = (Environment.GetEnvironmentVariable("AI_BASE_URL") ?? "http://localhost:8000").TrimEnd('/');
+string JwtKey = Environment.GetEnvironmentVariable("JWT_KEY") ?? "dev_super_secret_key_change_me";
 
-// Refit client for AI service
-builder.Services.AddRefitClient<IAiClient>()
-    .ConfigureHttpClient(c =>
-    {
-        // AI service URL comes from env (default: http://localhost:8000)
-        var aiUrl = Environment.GetEnvironmentVariable("AI_SERVICE_URL") ?? "http://localhost:8000";
-        c.BaseAddress = new Uri(aiUrl);
-        c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-    });
-
-// Authentication
+// Auth (JWT)
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer(o =>
     {
-        options.TokenValidationParameters = new TokenValidationParameters
+        o.TokenValidationParameters = new TokenValidationParameters
         {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)),
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("JWT_SECRET") ?? "supersecretkey"))
+            ClockSkew = TimeSpan.Zero
         };
     });
+builder.Services.AddAuthorization();
 
-// ---- CORS (demo-friendly) ----
+// CORS (demo-friendly)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("PagesPolicy", p => p
-        .SetIsOriginAllowed(_ => true)   // allow all origins (for GitHub Pages, etc.)
+        .SetIsOriginAllowed(_ => true)   // allow all (tighten later)
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
 
+// Refit client to AI service
+builder.Services.AddRefitClient<IAiClient>()
+    .ConfigureHttpClient(c =>
+    {
+        c.BaseAddress = new Uri(AiBase);
+        c.Timeout = TimeSpan.FromSeconds(60);
+        c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    });
+
 var app = builder.Build();
 
-// ---------- Middleware ----------
-app.UseCors("PagesPolicy"); // must come early
+// ---------------------- Middleware ----------------------
+app.UseCors("PagesPolicy");          // must be before auth
 app.UseAuthentication();
 app.UseAuthorization();
 
-// ---------- Routes ----------
+// ---------------------- Endpoints ----------------------
 
-// Health check
-app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
+// Health
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
-// Demo auth endpoint
+// Demo token: GET /api/auth/token  (Basic demo:demo)
 app.MapGet("/api/auth/token", (HttpContext ctx) =>
 {
-    var authHeader = ctx.Request.Headers["Authorization"].FirstOrDefault();
-    if (authHeader == null || !authHeader.StartsWith("Basic "))
+    if (!ctx.Request.Headers.TryGetValue("Authorization", out var auth))
         return Results.Unauthorized();
 
-    var encoded = authHeader.Substring("Basic ".Length).Trim();
-    var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-    var parts = decoded.Split(':');
-    if (parts.Length != 2) return Results.Unauthorized();
+    var value = auth.ToString();
+    if (!value.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        return Results.Unauthorized();
 
-    var username = parts[0];
-    var password = parts[1];
-
-    // demo/demo login
-    if (username == "demo" && password == "demo")
+    try
     {
-        var token = JwtHelper.GenerateToken(username);
-        return Results.Json(new { token });
+        var b64 = value["Basic ".Length..].Trim();
+        var parts = Encoding.UTF8.GetString(Convert.FromBase64String(b64)).Split(':', 2);
+        if (parts.Length != 2) return Results.Unauthorized();
+        if (parts[0] != "demo" || parts[1] != "demo") return Results.Unauthorized();
     }
+    catch { return Results.Unauthorized(); }
 
-    return Results.Unauthorized();
+    var token = JwtTokenHelper.Issue(JwtKey, "NovaRag", "NovaRagClients", "demo");
+    return Results.Ok(new { token });
 });
 
-// Ingest docs
-app.MapPost("/api/ingest", async (IngestRequest req, IAiClient ai, HttpContext ctx) =>
+// POST /api/ingest  -> AI /ingest
+app.MapPost("/api/ingest", async (IAiClient ai, IngestDto req) =>
 {
     try
     {
-        var auth = ctx.Request.Headers["Authorization"].FirstOrDefault();
-        if (auth == null) return Results.Unauthorized();
-
-        var result = await ai.IngestAsync(req);
-        return Results.Json(result);
+        var res = await ai.IngestAsync(req);
+        return Results.Ok(res);
     }
     catch (ApiException ex)
     {
-        var content = await ex.GetContentAsStringAsync();
-        return Results.Text(content ?? "AI service error", Encoding.UTF8, (int)ex.StatusCode);
+        var body = ex.Content; // body string from Refit
+        return Results.Text(
+            string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+            "application/json",
+            Encoding.UTF8,
+            (int)ex.StatusCode
+        );
     }
-});
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
 
-// Ask question
-app.MapPost("/api/ask", async (AskRequest req, IAiClient ai, HttpContext ctx) =>
+// POST /api/query   -> AI /query
+app.MapPost("/api/query", async (IAiClient ai, QueryRequest req) =>
 {
     try
     {
-        var auth = ctx.Request.Headers["Authorization"].FirstOrDefault();
-        if (auth == null) return Results.Unauthorized();
-
-        var result = await ai.AskAsync(req);
-        return Results.Json(result);
+        var res = await ai.QueryAsync(req);
+        return Results.Ok(res);
     }
     catch (ApiException ex)
     {
-        var content = await ex.GetContentAsStringAsync();
-        return Results.Text(content ?? "AI service error", Encoding.UTF8, (int)ex.StatusCode);
+        var body = ex.Content; // body string from Refit
+        return Results.Text(
+            string.IsNullOrWhiteSpace(body) ? ex.Message : body,
+            "application/json",
+            Encoding.UTF8,
+            (int)ex.StatusCode
+        );
     }
-});
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
 
 app.Run();
 
-// ---------- DTOs & Interfaces ----------
-public record IngestRequest(string doc_id, string text, int chunk_size);
-public record AskRequest(string query, int top_k);
+// ---------------------- Types ----------------------
+public record IngestDto(string doc_id, string text, int chunk_size = 700);
+public record QueryRequest(string query, int k = 4, string? doc_id = null);
 
 public interface IAiClient
 {
     [Post("/ingest")]
-    Task<object> IngestAsync([Body] IngestRequest request);
+    Task<object> IngestAsync([Body] IngestDto request);
 
-    [Post("/ask")]
-    Task<object> AskAsync([Body] AskRequest request);
+    [Post("/query")]
+    Task<object> QueryAsync([Body] QueryRequest request);
 }
 
-// ---------- JWT Helper ----------
-public static class JwtHelper
+public static class JwtTokenHelper
 {
-    public static string GenerateToken(string username)
+    public static string Issue(string key, string issuer, string audience, string username)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
-            Environment.GetEnvironmentVariable("JWT_SECRET") ?? "supersecretkey"));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
+        var sk = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+        var cred = new SigningCredentials(sk, SecurityAlgorithms.HmacSha256);
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
         var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
             claims: new[] { new System.Security.Claims.Claim("sub", username) },
-            expires: DateTime.UtcNow.AddHours(1),
-            signingCredentials: creds);
-
-        return new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
+            expires: DateTime.UtcNow.AddHours(6),
+            signingCredentials: cred
+        );
+        return handler.WriteToken(token);
     }
 }
